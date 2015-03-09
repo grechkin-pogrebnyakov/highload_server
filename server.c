@@ -1,12 +1,4 @@
-#include <event2/listener.h>
-#include <event2/bufferevent.h>
-#include <event2/buffer.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
+#include "server.h"
 
 /* Функция обратного вызова для события: данные готовы для чтения в buf_ev */
 static void echo_read_cb( struct bufferevent *buf_ev, void *arg )
@@ -47,42 +39,30 @@ static void accept_error_cb( struct evconnlistener *listener, void *arg )
   event_base_loopexit( base, NULL );
 }
 
-int main( int argc, char **argv )
-{
-  struct event_base *base;
-  struct evconnlistener *listener;
-  struct sockaddr_in sin;
-  int port = 9876;
 
-  if( argc > 1 )  port = atoi( argv[1] );
-  if( port < 0 || port > 65535 )
-  {
-    fprintf( stderr, "Задан некорректный номер порта.\n" );
-    return -1;
-  }
 
-  base = event_base_new();
-  if( !base )
-  {
-    fprintf( stderr, "Ошибка при создании объекта event_base.\n" );
-    return -1;
-  }
+int main_loop( struct sockaddr_in *sin ) {
+    struct event_base *base;
+    struct evconnlistener *listener;
 
-  memset( &sin, 0, sizeof(sin) );
-  sin.sin_family = AF_INET;    /* работа с доменом IP-адресов */
-  sin.sin_addr.s_addr = htonl( INADDR_ANY );  /* принимать запросы с любых адресов */
-  sin.sin_port = htons( port );
+    base = event_base_new();
+    if( !base )
+    {
+        fprintf( stderr, "Ошибка при создании объекта event_base.\n" );
+        return -1;
+    }
 
-  listener = evconnlistener_new_bind( base, accept_connection_cb, NULL,
-                                     (LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE),
-                                     -1, (struct sockaddr *)&sin, sizeof(sin) );
-  if( !listener )
-  {
-    perror( "Ошибка при создании объекта evconnlistener" );
-    return -1;
-  }
-  evconnlistener_set_error_cb( listener, accept_error_cb );
+    listener = evconnlistener_new_bind( base, accept_connection_cb, NULL,
+                                        (LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE),
+                                        -1, (struct sockaddr *)sin, sizeof(*sin) );
+    if( !listener )
+    {
+        perror( "Ошибка при создании объекта evconnlistener" );
+        return -1;
+    }
+    evconnlistener_set_error_cb( listener, accept_error_cb );
 
-  event_base_dispatch( base );
-  return 0;
+    event_base_dispatch( base );
+
+    return 0;
 }
