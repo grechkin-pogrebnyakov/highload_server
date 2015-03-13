@@ -27,6 +27,7 @@ typedef struct conn_t {\
     char *request;
     uint32_t status;
     int data;
+    uint16_t is_index_request;
     size_t data_len;
     char *content_type;
 //    char *vary;

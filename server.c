@@ -1,5 +1,11 @@
 #include "server.h"
 
+int file_exist (char *filename)
+{
+  struct stat   buffer;
+  return (stat (filename, &buffer) == 0);
+}
+
 int urlndecode(char* dst, int dst_size, const char* src, int src_size) {
     char a, b;
     int i = 0, j = 0;
@@ -78,6 +84,8 @@ static inline char* http_status_descr( uint32_t status ) {
         return "OK";
     case 400:
         return "Bad Request";
+    case 403:
+        return "Forbidden";
     case 404:
         return "Not Found";
     case 405:
@@ -115,9 +123,8 @@ static inline char* http_status_descr( uint32_t status ) {
     evbuffer_add_printf( _buf, "HTTP/1.1 %u %s\r\n", _status, http_status_descr( _status ) )
 
 /* Функция обратного вызова для события: данные готовы для записи в buf_ev */
-static void echo_write_cb( struct bufferevent *buf_ev, void *arg )
+static void connection_write_cb( struct bufferevent *buf_ev, void *arg )
 {
-//    printf("in write_cb\t");
     conn_t *cn = (conn_t*)arg;
     if( !cn->read_finished || !cn->data_ready )
     {
@@ -154,7 +161,6 @@ static void echo_write_cb( struct bufferevent *buf_ev, void *arg )
 
     }
     cn->write_finished = 1;
-//    printf("write finished\n");
 }
 
 static char* get_type( char *file_name ) {
@@ -200,11 +206,16 @@ static void prepare_data( struct bufferevent *buf_ev, conn_t *cn ) {
         cn->status = 200;
         cn->data = open( cn->request + 1, O_RDWR );
         if ( cn->data == -1 ) {
-            cn->data = open( "404.html", O_RDONLY );
+            if ( cn->is_index_request ) {
+            cn->data = open( "403.html", O_RDONLY );
             cn->content_type = "text/html";
-            cn->status = 404;
+            cn->status = 403;
+            } else {
+                cn->data = open( "404.html", O_RDONLY );
+                cn->content_type = "text/html";
+                cn->status = 404;
+            }
         } else {
-        //cn->data_len = strlen ( cn->data );
             char *file = strrchr( cn->request, '/' );
             if ( file )
                 cn->content_type = get_type( file );
@@ -216,15 +227,13 @@ static void prepare_data( struct bufferevent *buf_ev, conn_t *cn ) {
     fstat(cn->data, &buf);
     cn->data_len = buf.st_size;
     cn->data_ready = 1;
-    //echo_write_cb( buf_ev, (void*)cn );
 }
 
 
 
 /* Функция обратного вызова для события: данные готовы для чтения в buf_ev */
-static void echo_read_cb( struct bufferevent *buf_ev, void *arg )
+static void connection_read_cb( struct bufferevent *buf_ev, void *arg )
 {
-//    printf("in read_cb\t");
     conn_t *cn = (conn_t*)arg;
     struct evbuffer *buf_input = bufferevent_get_input( buf_ev );
     while ( evbuffer_get_length( buf_input ) ) {
@@ -235,7 +244,6 @@ static void echo_read_cb( struct bufferevent *buf_ev, void *arg )
                 cn->read_finished = 1;
                 evbuffer_drain( buf_input, 1024 );
                 bufferevent_disable( buf_ev, EV_READ );
-//                printf("read finished\n");
                 prepare_data( buf_ev, cn );
                 bufferevent_enable( buf_ev, EV_WRITE );
             } else if ( !cn->read_url ) {
@@ -259,6 +267,8 @@ static void echo_read_cb( struct bufferevent *buf_ev, void *arg )
                     decode_buff[decode_len] = '\0';
                     if ( decode_buff[decode_len - 1] == '/' )
                     {
+                        if (file_exist(decode_buff+1))
+                            cn->is_index_request = 1;
                         cn->request = (char*)malloc(decode_len + 11);
                         snprintf( cn->request, decode_len + 11, "%s%s", decode_buff, "index.html" );
                     } else
@@ -267,7 +277,6 @@ static void echo_read_cb( struct bufferevent *buf_ev, void *arg )
                 if ( method_end )
                     cn->method = strndup( request, method_end - request );
                 print_log("[cn_id=%lu_%lu] %s %s %s", pid, cn->id, cn->method, cn->addr, cn->request );
-                //echo_write_cb( buf_ev, arg );
             } /*else {
                 char *key_end = strchr( request, ':' );
                 if (
@@ -276,12 +285,10 @@ static void echo_read_cb( struct bufferevent *buf_ev, void *arg )
         } else
             break;
     }
-    //evbuffer_drain( buf_input, 1024 );
 }
 
-static void echo_event_cb( struct bufferevent *buf_ev, short events, void *arg )
+static void connection_event_cb( struct bufferevent *buf_ev, short events, void *arg )
 {
-//    printf("in event_cb\n");
     if( events & (BEV_EVENT_TIMEOUT|BEV_EVENT_READING) )
     {
         conn_t *cn = (conn_t*)arg;
@@ -310,7 +317,6 @@ static void accept_connection_cb( struct evconnlistener *listener,
   /* При обработке запроса нового соединения необходимо создать для него
      объект bufferevent */
     struct event_base *base = evconnlistener_get_base( listener );
-//    printf("fd = %d\n", fd);
     struct bufferevent *buf_ev = bufferevent_socket_new( base, fd, BEV_OPT_CLOSE_ON_FREE );
     conn_t *cn = (conn_t*)malloc(sizeof(conn_t));
     memset( cn, 0, sizeof(conn_t) );
@@ -318,15 +324,11 @@ static void accept_connection_cb( struct evconnlistener *listener,
     cn->addr = (char*)malloc( sock_len );
     inet_ntop(AF_INET, &(((struct sockaddr_in *)addr)->sin_addr),
                                 cn->addr, sock_len);
-    bufferevent_setcb( buf_ev, echo_read_cb, echo_write_cb, echo_event_cb, cn );
+    bufferevent_setcb( buf_ev, connection_read_cb, connection_write_cb, connection_event_cb, cn );
     bufferevent_enable( buf_ev, EV_READ );
     bufferevent_disable( buf_ev,  EV_WRITE );
     struct timeval timeout = {3, 0};
     bufferevent_set_timeouts( buf_ev, &timeout, &timeout );
-    //bufferevent_free( buf_ev );
-    //event_base_loopexit( base, NULL );
-    //free_cn(&cn);
-    //close(fd);
 }
 
 static void accept_error_cb( struct evconnlistener *listener, void *arg )
