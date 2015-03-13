@@ -144,6 +144,7 @@ static void connection_write_cb( struct bufferevent *buf_ev, void *arg )
     SET_HTTP_STR_HEADER( buf_output, "Content-Type", cn->content_type );
  //   SET_HTTP_STR_HEADER( buf_output, "Vary" , cn->vary );
     SET_HTTP_STR_HEADER( buf_output, "Date", current_datatime() );
+    SET_HTTP_STR_HEADER( buf_output, "Connection", "close" );
     SET_HTTP_STR_HEADER( buf_output, "Server", "Grechkin-Pogrebnyakov Server" );
     SET_HTTP_STR_HEADER( buf_output, "Cache-Control", "private" );
     if( cn->data == -1 ) {
@@ -198,7 +199,7 @@ static void prepare_data( struct bufferevent *buf_ev, conn_t *cn ) {
         cn->data = open( "405.html", O_RDONLY );
         cn->content_type = "text/html";
         cn->status = 405;
-    } else if ( strstr( cn->request, ".." )) {
+    } else if ( strstr( cn->request, "/." )) {
         cn->data = open( "404.html", O_RDONLY );
         cn->content_type = "text/html";
         cn->status = 404;

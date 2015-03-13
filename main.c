@@ -119,7 +119,9 @@ int main( int argc, char **argv )
     sin.sin_family = AF_INET;    /* работа с доменом IP-адресов */
     sin.sin_addr.s_addr = htonl( INADDR_ANY );  /* принимать запросы с любых адресов */
     sin.sin_port = htons( port );
-    int socketfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+    int socketfd = socket(AF_INET,( SOCK_STREAM | SOCK_NONBLOCK ), 0);
+    int optval = 1;
+        setsockopt(socketfd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
     if (bind( socketfd, (struct sockaddr *)&sin, sizeof( sin ) ) == -1 )
     {
         switch ( errno ){
@@ -132,7 +134,7 @@ int main( int argc, char **argv )
         return 1;
     }
 
-    pid = multi_fork(ncpu);
+    pid = multi_fork(ncpu - 1 );
 
     main_loop( socketfd );
 
