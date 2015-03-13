@@ -12,10 +12,8 @@
 #include "server.h"
 #include <unistd.h>
 
-
-char *document_root;
-uint32_t ncpu;
+int16_t log_level;
 uint16_t is_root;
-uint32_t port;
+pid_t pid;
 
 #endif
